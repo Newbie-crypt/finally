@@ -88,7 +88,7 @@ The user runs a single Docker command (or a provided start script). A browser op
 finally/
 ├── frontend/                 # Next.js TypeScript project (static export)
 ├── backend/                  # FastAPI uv project (Python)
-│   └── db/                   # Schema definitions, seed data, migration logic
+│   └── schema/                # Schema definitions, seed data, migration logic
 ├── planning/                 # Project-wide documentation for agents
 │   ├── PLAN.md               # This document
 │   └── ...                   # Additional agent reference docs
@@ -110,7 +110,7 @@ finally/
 
 - **`frontend/`** is a self-contained Next.js project. It knows nothing about Python. It talks to the backend via `/api/*` endpoints and `/api/stream/*` SSE endpoints. Internal structure is up to the Frontend Engineer agent.
 - **`backend/`** is a self-contained uv project with its own `pyproject.toml`. It owns all server logic including database initialization, schema, seed data, API routes, SSE streaming, market data, and LLM integration. Internal structure is up to the Backend/Market Data agents.
-- **`backend/db/`** contains schema SQL definitions and seed logic. The backend lazily initializes the database on first request — creating tables and seeding default data if the SQLite file doesn't exist or is empty.
+- **`backend/schema/`** contains schema SQL definitions and seed logic. The backend lazily initializes the database on first request — creating tables and seeding default data if the SQLite file doesn't exist or is empty. (Named distinctly from the top-level `db/` to avoid confusion between schema/seed *code* and the runtime SQLite *data* volume.)
 - **`db/`** at the top level is the runtime volume mount point. The SQLite file (`db/finally.db`) is created here by the backend and persists across container restarts via Docker volume.
 - **`planning/`** contains project-wide documentation, including this plan. All agents reference files here as the shared contract.
 - **`test/`** contains Playwright E2E tests and supporting infrastructure (e.g., `docker-compose.test.yml`). Unit tests live within `frontend/` and `backend/` respectively, following each framework's conventions.
@@ -154,12 +154,13 @@ Both the simulator and the Massive client implement the same abstract interface.
 - Correlated moves across tickers (e.g., tech stocks move together)
 - Occasional random "events" — sudden 2-5% moves on a ticker for drama
 - Starts from realistic seed prices (e.g., AAPL ~$190, GOOGL ~$175, etc.)
+- If a ticker with no predefined seed price is added (manually or by the LLM), the simulator assigns it a randomized seed price in a plausible range (e.g., $20–$400) the first time it's seen, then simulates normally from there
 - Runs as an in-process background task — no external dependencies
 
 ### Massive API (Optional)
 
 - REST API polling (not WebSocket) — simpler, works on all tiers
-- Polls for the union of all watched tickers on a configurable interval
+- Polls for the tickers currently in the watchlist on a configurable interval
 - Free tier (5 calls/min): poll every 15 seconds
 - Paid tiers: poll every 2-15 seconds depending on tier
 - Parses REST response into the same format as the simulator
@@ -257,7 +258,7 @@ All tables include a `user_id` column defaulting to `"default"`. This is hardcod
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | `/api/portfolio` | Current positions, cash balance, total value, unrealized P&L |
-| POST | `/api/portfolio/trade` | Execute a trade: `{ticker, quantity, side}` |
+| POST | `/api/portfolio/trade` | Execute a trade: `{ticker, quantity, side}`. Any valid ticker may be traded, even if not yet on the watchlist — a successful trade automatically adds it to the watchlist so it appears with live pricing going forward. |
 | GET | `/api/portfolio/history` | Portfolio value snapshots over time (for P&L chart) |
 
 ### Watchlist
@@ -271,6 +272,7 @@ All tables include a `user_id` column defaulting to `"default"`. This is hardcod
 | Method | Path | Description |
 |--------|------|-------------|
 | POST | `/api/chat` | Send a message, receive complete JSON response (message + executed actions) |
+| GET | `/api/chat` | Retrieve recent chat history, so the frontend can repopulate the chat panel on page load/refresh |
 
 ### System
 | Method | Path | Description |
@@ -327,6 +329,12 @@ Trades specified by the LLM execute automatically — no confirmation dialog. Th
 
 If a trade fails validation (e.g., insufficient cash), the error is included in the chat response so the LLM can inform the user.
 
+Trades may target tickers not yet on the watchlist — a successful trade automatically adds the ticker, matching the behavior of `POST /api/portfolio/trade` (see §8).
+
+### Error Handling
+
+If the LLM call itself fails (network error, timeout, or an unparseable/invalid structured-output response), `/api/chat` returns an HTTP error status with a JSON body `{"error": "<message>"}`. No `chat_messages` row is written for the failed attempt. The frontend should show an inline error state in the chat panel (e.g., "Something went wrong, try again") rather than treating it as a normal assistant message.
+
 ### System Prompt Guidance
 
 The LLM should be prompted as "FinAlly, an AI trading assistant" with instructions to:
@@ -364,7 +372,7 @@ The frontend is a single-page application with a dense, terminal-inspired layout
 ### Technical Notes
 
 - Use `EventSource` for SSE connection to `/api/stream/prices`
-- Canvas-based charting library preferred (Lightweight Charts or Recharts) for performance
+- A performant charting library is preferred: Lightweight Charts (canvas-based, best for high-frequency updates) or Recharts (SVG/D3-based, easier to style) are both reasonable choices
 - Price flash effect: on receiving a new price, briefly apply a CSS class with background color transition, then remove it
 - All API calls go to the same origin (`/api/*`) — no CORS configuration needed
 - Tailwind CSS for styling with a custom dark theme
@@ -400,6 +408,10 @@ docker run -v finally-data:/app/db -p 8000:8000 --env-file .env finally
 ```
 
 The `db/` directory in the project root maps to `/app/db` in the container. The backend writes `finally.db` to this path.
+
+### Concurrency
+
+The container runs a single Uvicorn worker process. SQLite supports only one writer at a time, so running multiple workers (`--workers N>1`) risks "database is locked" errors under concurrent writes. If horizontal scaling is ever needed, migrate to a server-based database first.
 
 ### Start/Stop Scripts
 
@@ -454,3 +466,21 @@ The container is designed to deploy to AWS App Runner, Render, or any container 
 - Portfolio visualization: heatmap renders with correct colors, P&L chart has data points
 - AI chat (mocked): send a message, receive a response, trade execution appears inline
 - SSE resilience: disconnect and verify reconnection
+
+---
+
+## 13. Review Notes — Resolved
+
+*Doc review conducted 2026-07-10. All items below have been incorporated into the sections referenced; kept here as an audit trail.*
+
+1. **Unknown tickers in simulator mode** → §6 now defines a fallback: randomized seed price in a plausible range on first sight of an unseeded ticker.
+2. **No GET endpoint for chat history** → added `GET /api/chat` in §8.
+3. **Trade ticker validation** → §8/§9 clarified: any valid ticker can be traded, even off-watchlist; a successful trade auto-adds it to the watchlist. *(User decision: allow + auto-add.)*
+4. **SQLite + concurrency** → §11 now has an explicit "Concurrency" note pinning the container to a single Uvicorn worker.
+5. **LLM failure handling** → §9 now defines the `/api/chat` error contract (HTTP error + `{"error": ...}`, no `chat_messages` row written).
+6. **"Union of all watched tickers" wording** → simplified in §6 to "the tickers currently in the watchlist," matching the single-user model.
+7. **Chart library note** → corrected in §10; Recharts is SVG/D3-based, not canvas-based (Lightweight Charts is canvas-based).
+8. **Snapshot cadence** → confirmed intentional at 30s. *(User decision: keep as-is.)*
+9. **`user_id` column** → kept as originally planned for future multi-user support. *(User decision: keep, no change made.)*
+10. **`backend/db/` vs. top-level `db/` naming collision** → renamed to `backend/schema/` in §4 to disambiguate schema/seed code from the runtime data volume.
+11. **Two market-data implementations behind one interface** → no change; noted as an appropriately-scoped abstraction, not over- or under-engineered.
