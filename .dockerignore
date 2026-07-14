@@ -1,0 +1,51 @@
+# Keep the build context small and the image free of host-local state.
+
+# Runtime data — the SQLite db is bind-mounted at run time, never baked in.
+db/
+*.db
+*.sqlite
+*.sqlite3
+
+# Secrets — provided at run time via --env-file, never copied into the image.
+.env
+.env.*
+!.env.example
+
+# Node
+node_modules/
+frontend/node_modules/
+frontend/.next/
+frontend/out/
+npm-debug.log*
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+backend/.venv/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Tests & tooling that never belong in the production image
+test/
+backend/tests/
+frontend/tests/
+
+# Repo / editor / CI metadata
+.git/
+.github/
+.gitignore
+.claude/
+.agents/
+.idea/
+.vscode/
+planning/
+independent-reviewer/
+scripts/
+*.md
+!backend/README.md
+!frontend/README.md
+Dockerfile
+docker-compose.yml

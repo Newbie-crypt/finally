@@ -1,0 +1,33 @@
+# Optional convenience wrapper around the same image the start scripts build.
+#   docker compose up --build      -> http://localhost:8000
+#   docker compose down            -> stops the app; ./db (and your data) stays
+#
+# Production/E2E note: the E2E stack lives separately in test/docker-compose.test.yml.
+
+services:
+  finally:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: finally:latest
+    container_name: finally
+    ports:
+      - "8000:8000"
+    # Bind mount, not a named volume: PLAN.md §4/§11 make ./db the project's
+    # own runtime mount point, so the SQLite file is visible on the host.
+    volumes:
+      - ./db:/app/db
+    # Same contract as `docker run --env-file .env`. Copy .env.example -> .env.
+    env_file:
+      - .env
+    restart: unless-stopped
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=4).status == 200 else 1)"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s

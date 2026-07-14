@@ -1,0 +1,63 @@
+# E2E stack (PLAN.md §12): the real app image + a Playwright container.
+#
+# Browser dependencies stay out of the production image — they live only in the
+# mcr.microsoft.com/playwright image used here.
+#
+#   docker compose -f test/docker-compose.test.yml up --build --exit-code-from playwright
+#   docker compose -f test/docker-compose.test.yml down -v
+#
+# The stack's exit code is the Playwright run's exit code, so CI can gate on it.
+
+services:
+  # NB: the service name is the hostname the browser navigates to, and it must
+  # not be "app": Chromium ships "app" in its HSTS preload list (the .app TLD),
+  # so http://app:8000 is silently forced to https:// -> ERR_SSL_PROTOCOL_ERROR.
+  finally:
+    build:
+      # Same Dockerfile that ships to production — we test what we ship.
+      context: ..
+      dockerfile: Dockerfile
+    image: finally:latest
+    environment:
+      # Mock mode never reaches OpenRouter, but the app still expects the var to
+      # exist (PLAN.md §5/§9). This value is deliberately not a real key.
+      OPENROUTER_API_KEY: e2e-dummy-key-not-used-in-mock-mode
+      LLM_MOCK: "true"
+      # Empty -> built-in market simulator, so prices tick without a vendor key.
+      MASSIVE_API_KEY: ""
+    # Fresh, seeded SQLite database on every `up`: the suite asserts the pristine
+    # $10,000 balance and the 10-ticker seed watchlist before it spends anything.
+    tmpfs:
+      - /app/db
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=4).status == 200 else 1)"
+      interval: 3s
+      timeout: 5s
+      retries: 20
+      start_period: 5s
+
+  playwright:
+    # Keep this tag in lockstep with @playwright/test in test/package.json.
+    image: mcr.microsoft.com/playwright:v1.61.1-noble
+    depends_on:
+      finally:
+        condition: service_healthy
+    working_dir: /e2e
+    volumes:
+      - .:/e2e
+      # Keep the container's node_modules off the host bind mount (the host may
+      # hold a differently-built copy, e.g. Windows/WSL).
+      - e2e-node-modules:/e2e/node_modules
+    environment:
+      BASE_URL: http://finally:8000
+      CI: "true"
+    # Browsers are preinstalled in the image; we only need the test runner.
+    command: >
+      sh -c "npm install --no-audit --no-fund && npx playwright test"
+
+volumes:
+  e2e-node-modules:

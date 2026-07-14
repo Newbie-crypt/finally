@@ -1,0 +1,83 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, monospace;
+    --font-sans: 'Inter', ui-sans-serif, system-ui, sans-serif;
+  }
+
+  html,
+  body {
+    height: 100%;
+  }
+
+  body {
+    @apply bg-terminal-void text-slate-200 font-sans antialiased;
+    /* Faint grid: the terminal sits on graph paper, not a flat void. */
+    background-image:
+      linear-gradient(rgba(35, 43, 56, 0.35) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(35, 43, 56, 0.35) 1px, transparent 1px);
+    background-size: 32px 32px;
+  }
+
+  /* Every figure in this app is a number in a column. Lock the advance width. */
+  .tnum {
+    font-variant-numeric: tabular-nums;
+    font-feature-settings: 'tnum' 1;
+  }
+
+  :focus-visible {
+    @apply outline-none ring-2 ring-accent/70 ring-offset-1 ring-offset-terminal-void;
+  }
+
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    @apply rounded-full bg-terminal-edge;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-dim;
+  }
+}
+
+@layer components {
+  /* Section eyebrow — the label on every panel header. */
+  .eyebrow {
+    @apply font-mono text-micro uppercase tracking-[0.14em] text-dim;
+  }
+
+  .panel {
+    @apply flex min-h-0 flex-col rounded border border-terminal-line bg-terminal-deep/90;
+  }
+
+  .panel-head {
+    @apply flex shrink-0 items-center justify-between gap-2 border-b border-terminal-line px-3 py-2;
+  }
+
+  .field {
+    @apply rounded border border-terminal-line bg-terminal-void px-2.5 py-1.5 font-mono text-data
+           text-slate-100 placeholder:text-dim focus:border-accent/60;
+  }
+
+  .btn {
+    @apply rounded font-mono text-tick font-semibold uppercase tracking-wider transition-colors
+           disabled:cursor-not-allowed disabled:opacity-40;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

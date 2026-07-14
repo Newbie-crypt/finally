@@ -1,0 +1,21 @@
+# The root .gitignore is a Python template. Two of its rules — `lib/` and
+# `build/` (Python packaging) — would otherwise swallow this project's `lib/`
+# source directory. Rules in a nested .gitignore override the parent's, so
+# re-include them explicitly before ignoring what actually belongs to Node.
+!lib/
+!build/
+
+# Dependencies
+node_modules/
+
+# Next.js build output
+.next/
+out/
+next-env.d.ts
+
+# Test / tooling caches
+coverage/
+*.tsbuildinfo
+
+# Local env overrides
+.env*.local
