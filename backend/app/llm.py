@@ -22,7 +22,7 @@ from pydantic import BaseModel, Field, ValidationError
 
 logger = logging.getLogger(__name__)
 
-MODEL = "openrouter/openai/gpt-oss-120b"
+MODEL = "openrouter/nvidia/nemotron-3-ultra-550b-a55b:free"
 EXTRA_BODY = {"provider": {"order": ["cerebras"]}}
 REASONING_EFFORT = "low"
 
@@ -242,13 +242,10 @@ def call_llm(
 
     try:
         from litellm import completion  # imported lazily: keeps mock mode import-light
-
         response = completion(
             model=MODEL,
             messages=messages,
             response_format=ChatCompletionResponse,
-            reasoning_effort=REASONING_EFFORT,
-            extra_body=EXTRA_BODY,
         )
         raw = response.choices[0].message.content
     except LLMError:
